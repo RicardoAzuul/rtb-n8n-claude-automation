@@ -1,0 +1,13 @@
+# Secrets
+.env
+.env.*
+api_key
+
+# Downloaded live OpenAPI specs
+n8n-openapi.json
+n8n-openapi.yaml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
