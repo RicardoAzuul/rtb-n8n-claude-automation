@@ -22,9 +22,25 @@ model (`activeVersionId`, `publishIfActive` on the PUT) and deprecate `active`.
    to `n8n-openapi.json`/`.yaml`. If that fails, open
    `http://localhost:5678/api/v1/docs` (Swagger playground, always exact for
    the installed version) and read the workflow/execution schemas there.
+   (`docs` fetches `/api/v1/openapi.yml`.)
 3. Use the spec to determine how activating/publishing works *before* any PUT
    on a workflow that is already active. A wrong assumption can deactivate a
    running workflow or leave a draft behind.
+
+**Verified on Richard's instance (n8n Public API 1.1.1, 2026-10-29):** it uses
+the draft/publish model.
+
+- `active` is deprecated; a workflow is published when `activeVersionId` is
+  not null.
+- Publish/unpublish with `publish-workflow <id>` / `unpublish-workflow <id>`
+  (`POST /workflows/{id}/publish|unpublish`). The old `/activate` and
+  `/deactivate` endpoints are deprecated.
+- `update-workflow` on a published workflow re-publishes it automatically
+  (needs the `workflow:activate` API key scope). Use `--no-publish`
+  (`publishIfActive=false`) to save a draft and leave the live version
+  untouched.
+
+Re-verify with `docs` if n8n has been upgraded.
 
 Node types and parameters (HTTP Request, Set, IF, Code, Webhook, ...) also
 differ per n8n version and installed community nodes. Don't invent parameters

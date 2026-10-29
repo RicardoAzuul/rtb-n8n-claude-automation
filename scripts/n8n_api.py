@@ -27,6 +27,8 @@ Usage:
   python3 n8n_api.py get-workflow <id>
   python3 n8n_api.py create-workflow workflow.json
   python3 n8n_api.py update-workflow <id> workflow.json [--publish|--no-publish]
+  python3 n8n_api.py publish-workflow <id>
+  python3 n8n_api.py unpublish-workflow <id>
   python3 n8n_api.py list-executions [--workflow-id ID] [--status success|error|waiting] [--limit N]
   python3 n8n_api.py get-execution <id> [--full]
   python3 n8n_api.py retry-execution <id> [--load-workflow]
@@ -157,6 +159,7 @@ def cmd_docs(args):
     changed across versions. Try a few conventional spots and report what worked."""
     base = get_base_url()
     candidates = [
+        get_prefix() + "/openapi.yml",
         get_prefix() + "/docs/openapi.json",
         get_prefix() + "/docs/json",
         get_prefix() + "/docs-json",
@@ -165,7 +168,11 @@ def cmd_docs(args):
     found = False
     for c in candidates:
         status, parsed, text = request("GET", c)
-        if status == 200 and (parsed is not None or "openapi" in text.lower() or "swagger" in text.lower()):
+        # Reject HTML: the /docs paths can return the Swagger UI page, not a spec.
+        is_html = text.lstrip().startswith("<")
+        if status == 200 and not is_html and (
+            parsed is not None or "openapi" in text.lower() or "swagger" in text.lower()
+        ):
             out = Path("n8n-openapi" + (".json" if parsed is not None else ".yaml"))
             out.write_text(text, encoding="utf-8")
             print(f"Saved live API spec from {base}{c} -> {out.resolve()}")
@@ -208,6 +215,14 @@ def cmd_update_workflow(args):
     if args.publish is not None:
         path += f"?publishIfActive={'true' if args.publish else 'false'}"
     print_result(*request("PUT", path, body=body))
+
+
+def cmd_publish_workflow(args):
+    print_result(*request("POST", f"/workflows/{args.id}/publish"))
+
+
+def cmd_unpublish_workflow(args):
+    print_result(*request("POST", f"/workflows/{args.id}/unpublish"))
 
 
 def cmd_list_executions(args):
@@ -292,6 +307,14 @@ def main():
     grp.add_argument("--publish", dest="publish", action="store_true", default=None)
     grp.add_argument("--no-publish", dest="publish", action="store_false")
     s.set_defaults(func=cmd_update_workflow)
+
+    s = sub.add_parser("publish-workflow")
+    s.add_argument("id")
+    s.set_defaults(func=cmd_publish_workflow)
+
+    s = sub.add_parser("unpublish-workflow")
+    s.add_argument("id")
+    s.set_defaults(func=cmd_unpublish_workflow)
 
     s = sub.add_parser("list-executions")
     s.add_argument("--workflow-id")
