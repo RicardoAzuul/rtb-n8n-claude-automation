@@ -15,6 +15,9 @@ Don't assume the API shape. Older docs use `active: true/false` and separate
 model (`activeVersionId`, `publishIfActive` on the PUT) and deprecate `active`.
 
 1. `python3 scripts/n8n_api.py ping` — verify connectivity and the API key.
+   If it reports that `N8N_API_KEY` is missing, Richard must copy
+   `example.env` to `.env` and fill it in. Don't read or write `.env`
+   yourself.
 2. `python3 scripts/n8n_api.py docs` — tries to download the live OpenAPI spec
    to `n8n-openapi.json`/`.yaml`. If that fails, open
    `http://localhost:5678/api/v1/docs` (Swagger playground, always exact for
@@ -63,7 +66,8 @@ exists but needs an existing execution ID. Use these routes in order:
 
 1. **n8n CLI** (works for any trigger type):
    `python3 scripts/n8n_api.py cli-execute <workflow-id>`
-   Add `--docker-container NAME` if n8n runs in Docker. Ask Richard if
+   Add `--docker-container NAME` (or set `N8N_DOCKER_CONTAINER` in `.env`) if
+   n8n runs in Docker. Ask Richard if
    `which n8n` finds nothing and no npx n8n is available.
 2. **Webhook trigger**, if the workflow starts with a Webhook node:
    `python3 scripts/n8n_api.py call-webhook <path> --test --data '{...}'`

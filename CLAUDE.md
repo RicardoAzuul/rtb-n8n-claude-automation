@@ -21,9 +21,10 @@ don't invent node parameters from memory.
 
 ## Safety
 
-- The API key lives in `~/.config/n8n/api_key` (chmod 600) and is only read
-  by `scripts/n8n_api.py`. Never print, log, or commit it. Make sure
-  `.gitignore` excludes that file and any `.env` file.
+- The API key (`N8N_API_KEY`) lives in `.env` in the repo root (chmod 600),
+  which is git-ignored, and is only read by `scripts/n8n_api.py`. Never
+  print, log, or commit it, and never read `.env` yourself. Only
+  `example.env` (placeholders, no real values) is committed.
 - Testing runs a **real** execution, not a dry run. Always ask Richard for
   explicit confirmation before you test/activate a workflow that performs
   external, irreversible actions (email, Slack, deleting data, payments, ...).
@@ -33,8 +34,14 @@ don't invent node parameters from memory.
 - OAuth credentials can't be created via the API. Richard must set them up in
   the n8n UI; say so explicitly instead of acting as if it's solved.
 
-## Config (environment variables, optional)
+## Config
 
+Copy `example.env` to `.env` and fill in the values; `scripts/n8n_api.py`
+loads it automatically. Real environment variables take precedence over
+`.env`.
+
+- `N8N_API_KEY` — required, your n8n API key
 - `N8N_BASE_URL` — default `http://localhost:5678`
-- `N8N_API_KEY_FILE` — default `~/.config/n8n/api_key`
 - `N8N_API_PREFIX` — default `/api/v1`
+- `N8N_DOCKER_CONTAINER` — optional, container name if n8n runs in Docker
+  (default for `cli-execute --docker-container`)

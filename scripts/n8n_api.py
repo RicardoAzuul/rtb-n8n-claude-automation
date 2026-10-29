@@ -13,10 +13,12 @@ Design goals:
   the exact shape against the *live* docs for the installed version with
   the `docs` subcommand before relying on a specific field name.
 
-Config (env vars, all optional):
-  N8N_BASE_URL        default: http://localhost:5678
-  N8N_API_KEY_FILE    default: ~/.config/n8n/api_key
-  N8N_API_PREFIX      default: /api/v1
+Config: read from a `.env` file in the repo root (copy `example.env` to `.env`),
+or from real environment variables, which take precedence over `.env`.
+  N8N_API_KEY           required: n8n API key (Settings > n8n API in the n8n UI)
+  N8N_BASE_URL          default: http://localhost:5678
+  N8N_API_PREFIX        default: /api/v1
+  N8N_DOCKER_CONTAINER  optional: default for `cli-execute --docker-container`
 
 Usage:
   python3 n8n_api.py ping
@@ -42,8 +44,27 @@ import urllib.request
 from pathlib import Path
 
 DEFAULT_BASE_URL = "http://localhost:5678"
-DEFAULT_KEY_FILE = "~/.config/n8n/api_key"
 DEFAULT_PREFIX = "/api/v1"
+ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+
+
+def load_env_file(path: Path = ENV_FILE) -> None:
+    """Load KEY=VALUE lines from `path` into os.environ without overriding
+    variables that are already set."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        os.environ.setdefault(key.strip(), value)
+
+
+load_env_file()
 
 
 def get_base_url() -> str:
@@ -55,18 +76,14 @@ def get_prefix() -> str:
 
 
 def read_api_key() -> str:
-    key_file = Path(os.environ.get("N8N_API_KEY_FILE", DEFAULT_KEY_FILE)).expanduser()
-    if not key_file.exists():
-        sys.exit(
-            f"API key file not found: {key_file}\n"
-            f"Create it once with your n8n API key (Settings > n8n API in the n8n UI):\n"
-            f"  mkdir -p {key_file.parent}\n"
-            f"  echo 'YOUR_KEY_HERE' > {key_file}\n"
-            f"  chmod 600 {key_file}"
-        )
-    key = key_file.read_text(encoding="utf-8").strip()
+    key = os.environ.get("N8N_API_KEY", "").strip()
     if not key:
-        sys.exit(f"API key file {key_file} is empty.")
+        sys.exit(
+            "N8N_API_KEY is not set.\n"
+            f"Copy example.env to {ENV_FILE.name} and fill in your n8n API key\n"
+            "(Settings > n8n API in the n8n UI):\n"
+            f"  cp example.env .env && chmod 600 .env"
+        )
     return key
 
 
@@ -221,8 +238,9 @@ def cmd_cli_execute(args):
     'run this workflow now' endpoint (only /executions/{id}/retry, which
     needs an execution that already exists)."""
     base_cmd = None
-    if args.docker_container:
-        base_cmd = ["docker", "exec", args.docker_container, "n8n", "execute", f"--id={args.id}"]
+    container = args.docker_container or os.environ.get("N8N_DOCKER_CONTAINER")
+    if container:
+        base_cmd = ["docker", "exec", container, "n8n", "execute", f"--id={args.id}"]
     else:
         from shutil import which
         if which("n8n"):
