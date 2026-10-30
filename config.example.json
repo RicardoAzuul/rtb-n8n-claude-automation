@@ -1,0 +1,8 @@
+{
+  "discord_webhooks": {
+    "Tech": "https://discord.com/api/webhooks/ID/TOKEN",
+    "Cooking": "https://discord.com/api/webhooks/ID/TOKEN",
+    "RPG": "https://discord.com/api/webhooks/ID/TOKEN",
+    "ASMR": "https://discord.com/api/webhooks/ID/TOKEN"
+  }
+}

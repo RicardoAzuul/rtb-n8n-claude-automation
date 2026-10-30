@@ -11,3 +11,6 @@ n8n-openapi.yaml
 __pycache__/
 *.pyc
 .venv/
+
+# Discord webhook URLs (secrets)
+config.local.json
