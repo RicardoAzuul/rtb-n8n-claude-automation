@@ -67,7 +67,68 @@ If a node needs OAuth credentials that don't exist yet, you cannot create or
 authorize them via the API. Richard must do that once in the n8n UI
 (Credentials). Say so explicitly rather than acting as if it's solved.
 
+### Secrets never go in the workflow JSON
+
+**Treat workflow JSON as public.** Richard's workflows are backed up to
+GitHub, and exports get shared. This has already gone wrong once: Discord
+webhook URLs hardcoded in a Code node's JavaScript ended up in a GitHub
+backup and the channels got spammed.
+
+A secret is anything that grants access: API keys, tokens, passwords, and
+**webhook URLs** (Discord, Slack, Teams, ... — the URL itself *is* the
+credential), as well as URLs with a token in the path or query string.
+
+Never put a secret as a literal anywhere in a workflow:
+
+- Code node JavaScript/Python (constants, objects, lookup tables)
+- HTTP Request URL, headers, query parameters, or body
+- Set/Edit Fields values, expressions, IF/Switch conditions
+- pinned data, sticky notes, node names, workflow settings
+
+Where secrets go instead, in order of preference:
+
+1. **n8n credentials.** Use a node with a matching credential type (e.g. the
+   Discord node with its webhook connection type, the Slack node), or the
+   HTTP Request node with a generic credential (Header Auth, Query Auth,
+   ...). The workflow JSON then only holds a reference to the credential
+   (`id` + `name`), not its value. Look up the exact credential type and node
+   parameters in the live docs, as with any other node.
+   Richard creates the credential in the n8n UI (Credentials) and tells you
+   its name; you reference it. Don't ask him to paste the secret into this
+   conversation, and don't pass it to `scripts/n8n_api.py` on a command line.
+2. If no credential type fits: tell Richard and agree on an alternative
+   before building (e.g. an environment variable in the n8n container read
+   via `$env`, if env access is enabled). Never fall back to hardcoding.
+
+Multiple secrets of the same kind (e.g. one Discord webhook per channel):
+one credential per secret, and route items with a Switch node to one node
+per credential, instead of a URL lookup table in a Code node.
+
+The same rule applies to generator scripts in this repo
+(`workflows/*.py`): reading a secret from a git-ignored file and then
+writing it into the generated workflow JSON still leaks it — the result lands
+in n8n and in its backups. Generators only emit credential references.
+
 ## 4. Push
+
+**Secret check before every `create-workflow`/`update-workflow`:** scan the
+JSON you are about to push, and stop if anything looks like a secret.
+At minimum, search for:
+
+```
+grep -nEio 'discord(app)?\.com/api/webhooks|hooks\.slack\.com|webhook\.office\.com|xox[abpr]-|gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|bearer [A-Za-z0-9._-]{16,}|(api[_-]?key|token|secret|password)["'\'' ]*[:=]' workflow.json
+```
+
+`-o` prints only the matched pattern (e.g. `discord.com/api/webhooks`,
+`apiKey":`), not the secret value after it; keep it that way.
+A hit means: move it to a credential (section 3), don't push. When changing
+an existing workflow, run the same check on `get-workflow` output first and
+tell Richard if the live version already contains hardcoded secrets.
+
+If a secret has already been exposed (pushed to GitHub, shared, logged), tell
+Richard straight away: the secret must be **rotated** (e.g. delete the
+Discord webhook in Channel settings → Integrations → Webhooks and create a
+new one). Removing it from the workflow or git history alone is not enough.
 
 - New workflow: `create-workflow`.
 - Change to an existing one: `update-workflow` on the correct ID, with
@@ -116,6 +177,8 @@ Keep it short and concrete:
 - Workflow name and ID
 - Editor link: `http://localhost:5678/workflow/<id>`
 - Active or inactive
+- Which credentials the workflow uses (by name), and confirmation that the
+  secret check found no hardcoded secrets
 - Test result, including a clear notice if the test had a real side effect
   (e.g. "a Slack message was just actually sent to #channel as part of the
   test")
