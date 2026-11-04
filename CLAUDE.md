@@ -25,6 +25,10 @@ don't invent node parameters from memory.
   which is git-ignored, and is only read by `scripts/n8n_api.py`. Never
   print, log, or commit it, and never read `.env` yourself. Only
   `example.env` (placeholders, no real values) is committed.
+- Never hardcode secrets (API keys, tokens, Discord/Slack webhook URLs, ...)
+  in a workflow — not in Code nodes, HTTP Request nodes, or anywhere else.
+  Workflow JSON is backed up to GitHub; treat it as public. Use n8n
+  credentials instead (details in the skill, section 3).
 - Testing runs a **real** execution, not a dry run. Always ask Richard for
   explicit confirmation before you test/activate a workflow that performs
   external, irreversible actions (email, Slack, deleting data, payments, ...).
