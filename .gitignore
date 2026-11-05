@@ -12,5 +12,5 @@ __pycache__/
 *.pyc
 .venv/
 
-# Discord webhook URLs (secrets)
+# Local secrets (legacy; webhooks now live in n8n credentials)
 config.local.json

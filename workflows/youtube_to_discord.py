@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Generate the "YouTube to Discord" n8n workflow JSON.
 
-Channels live in CHANNELS below. Discord webhook URLs are secrets and are read
-from config.local.json (git-ignored; see config.example.json), so they never
-end up in the repo.
+Channels live in CHANNELS below. Each interest posts through its own official
+Discord node ("Webhook" connection type). The Discord webhook URLs are secrets:
+they live only in n8n credentials (type "Discord Webhook"), which Richard adds
+in the n8n UI and selects on each Discord node. This generator never sees or
+writes a webhook URL, so the workflow JSON (and its GitHub backup) contains
+none.
 
 Usage: python3 workflows/youtube_to_discord.py OUT.json
 """
 import json
 import sys
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parent.parent
 
 # interest -> [(display name, handle, channel id)]
 CHANNELS = {
@@ -38,124 +38,118 @@ CHANNELS = {
 }
 
 JS = r"""
-// Fetch each channel's RSS feed, return only videos not posted before.
-// State (seen video IDs per channel) lives in workflow static data, which is
-// only persisted for production (scheduled) executions.
+// One item holding the array of channels to check.
 const channels = __CHANNELS__;
-const webhooks = __WEBHOOKS__;
-
-const state = $getWorkflowStaticData('global');
-state.seen = state.seen || {};
-
-const decode = (s) => s
-  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
-  .replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, '&');
-
-const out = [];
-for (const ch of channels) {
-  let xml;
-  try {
-    xml = await this.helpers.httpRequest({
-      method: 'GET',
-      url: `https://www.youtube.com/feeds/videos.xml?channel_id=${ch.channelId}`,
-      returnFullResponse: false,
-      timeout: 20000,
-    });
-  } catch (e) {
-    console.log(`Feed failed for ${ch.name}: ${e.message}`);
-    continue;
-  }
-  const videos = [...String(xml).matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map((m) => {
-    const e = m[1];
-    const get = (re) => (e.match(re) || [])[1];
-    return {
-      id: get(/<yt:videoId>([^<]+)<\/yt:videoId>/),
-      title: decode(get(/<title>([^<]*)<\/title>/) || ''),
-      url: get(/<link rel="alternate" href="([^"]+)"/),
-      published: get(/<published>([^<]+)<\/published>/),
-    };
-  }).filter((v) => v.id);
-
-  const first = !state.seen[ch.channelId];
-  const seen = new Set(state.seen[ch.channelId] || []);
-  const fresh = videos.filter((v) => !seen.has(v.id));
-  // First time we see a channel: record its videos, don't flood Discord.
-  if (!first) {
-    for (const v of fresh.sort((a, b) => a.published.localeCompare(b.published))) {
-      out.push({ json: {
-        category: ch.category,
-        channel: ch.name,
-        videoId: v.id,
-        title: v.title,
-        url: v.url,
-        published: v.published,
-        webhookUrl: webhooks[ch.category],
-      } });
-    }
-  }
-  state.seen[ch.channelId] = [...videos.map((v) => v.id), ...seen].slice(0, 100);
-}
-return out;
+return [{ json: {
+  channels: channels.map((c) => ({
+    ...c,
+    feedUrl: `https://www.youtube.com/feeds/videos.xml?channel_id=${c.channelId}`,
+  })),
+} }];
 """
 
+MESSAGE = (
+    "=\U0001F4FA **{{ $('Split channels').item.json.name }}** posted a new video:\n"
+    "{{ $json.title }}\n"
+    "{{ $json.link }}"
+)
 
-def build(webhooks):
+
+def node(i, name, type_, version, params, pos, **extra):
+    return {
+        "parameters": params,
+        "id": f"a1000000-0000-4000-8000-{i:012d}",
+        "name": name,
+        "type": type_,
+        "typeVersion": version,
+        "position": pos,
+        **extra,
+    }
+
+
+def discord_node_name(category):
+    return f"Post to Discord ({category})"
+
+
+def build():
     channels = [
         {"category": cat, "name": name, "handle": handle, "channelId": cid}
         for cat, items in CHANNELS.items()
         for name, handle, cid in items
     ]
-    js = (JS.replace("__CHANNELS__", json.dumps(channels, indent=2))
-            .replace("__WEBHOOKS__", json.dumps(webhooks, indent=2)))
+    js = JS.replace("__CHANNELS__", json.dumps(channels, indent=2))
+    categories = list(CHANNELS)
+    nodes = [
+        node(1, "Daily at 09:00", "n8n-nodes-base.scheduleTrigger", 1.2,
+             {"rule": {"interval": [{"triggerAtHour": 9}]}}, [0, 0]),
+        node(2, "YouTube channels", "n8n-nodes-base.code", 2,
+             {"jsCode": js.strip()}, [224, 0]),
+        node(3, "Split channels", "n8n-nodes-base.splitOut", 1,
+             {"fieldToSplitOut": "channels", "options": {}}, [448, 0]),
+        node(4, "Read YouTube feed", "n8n-nodes-base.rssFeedRead", 1,
+             {"url": "={{ $json.feedUrl }}", "options": {}}, [672, 0],
+             onError="continueRegularOutput"),
+        # Only videos from the last 2 days: stops a flood of old videos on the first run.
+        node(5, "Published recently", "n8n-nodes-base.filter", 2.2,
+             {"conditions": {
+                 "options": {"caseSensitive": True, "leftValue": "", "typeValidation": "loose", "version": 2},
+                 "conditions": [{
+                     "id": "a1000000-0000-4000-8000-0000000000f1",
+                     "leftValue": "={{ $json.isoDate }}",
+                     "rightValue": "={{ $now.minus({ days: 2 }).toISO() }}",
+                     "operator": {"type": "dateTime", "operation": "after"},
+                 }],
+                 "combinator": "and"},
+              "options": {}}, [896, 0]),
+        node(6, "Skip already posted", "n8n-nodes-base.removeDuplicates", 2,
+             {"operation": "removeItemsSeenInPreviousExecutions",
+              "dedupeValue": "={{ $json.id }}", "options": {}}, [1120, 0]),
+        # One output per interest, each wired to the Discord node of that interest.
+        node(7, "Route by interest", "n8n-nodes-base.switch", 3.2,
+             {"rules": {"values": [
+                 {"conditions": {
+                     "options": {"caseSensitive": True, "leftValue": "", "typeValidation": "strict", "version": 2},
+                     "conditions": [{
+                         "id": f"a1000000-0000-4000-8000-0000000001{k:02d}",
+                         "leftValue": "={{ $('Split channels').item.json.category }}",
+                         "rightValue": cat,
+                         "operator": {"type": "string", "operation": "equals"},
+                     }],
+                     "combinator": "and"},
+                  "renameOutput": True,
+                  "outputKey": cat}
+                 for k, cat in enumerate(categories)]},
+              "options": {}}, [1344, 0]),
+    ]
+    # Official Discord node, "Webhook" connection type. No credential is attached:
+    # Richard selects a "Discord Webhook" credential per node in the n8n UI.
+    for k, cat in enumerate(categories):
+        nodes.append(node(8 + k, discord_node_name(cat), "n8n-nodes-base.discord", 2,
+                          {"authentication": "webhook",
+                           "operation": "sendLegacy",
+                           "content": MESSAGE,
+                           "options": {}},
+                          [1568, int((k - (len(categories) - 1) / 2) * 192)]))
+
+    chain = [n["name"] for n in nodes[:7]]
+    connections = {
+        a: {"main": [[{"node": b, "type": "main", "index": 0}]]}
+        for a, b in zip(chain, chain[1:])
+    }
+    connections["Route by interest"] = {"main": [
+        [{"node": discord_node_name(cat), "type": "main", "index": 0}]
+        for cat in categories
+    ]}
     return {
         "name": "YouTube to Discord",
-        "nodes": [
-            {
-                "parameters": {"rule": {"interval": [{"triggerAtHour": 9}]}},
-                "id": "a1000000-0000-4000-8000-000000000001",
-                "name": "Daily at 09:00",
-                "type": "n8n-nodes-base.scheduleTrigger",
-                "typeVersion": 1.2,
-                "position": [0, 0],
-            },
-            {
-                "parameters": {"jsCode": js.strip()},
-                "id": "a1000000-0000-4000-8000-000000000002",
-                "name": "Find new videos",
-                "type": "n8n-nodes-base.code",
-                "typeVersion": 2,
-                "position": [224, 0],
-            },
-            {
-                "parameters": {
-                    "method": "POST",
-                    "url": "={{ $json.webhookUrl }}",
-                    "sendBody": True,
-                    "specifyBody": "json",
-                    "jsonBody": "={{ JSON.stringify({ content: '📺 **' + $json.channel + '** posted a new video:\\n' + $json.title + '\\n' + $json.url }) }}",
-                    "options": {
-                        "batching": {"batch": {"batchSize": 1, "batchInterval": 1000}}
-                    },
-                },
-                "id": "a1000000-0000-4000-8000-000000000003",
-                "name": "Post to Discord",
-                "type": "n8n-nodes-base.httpRequest",
-                "typeVersion": 4.2,
-                "position": [448, 0],
-            },
-        ],
-        "connections": {
-            "Daily at 09:00": {"main": [[{"node": "Find new videos", "type": "main", "index": 0}]]},
-            "Find new videos": {"main": [[{"node": "Post to Discord", "type": "main", "index": 0}]]},
-        },
+        "nodes": nodes,
+        "connections": connections,
         "settings": {"executionOrder": "v1"},
     }
 
 
 if __name__ == "__main__":
-    cfg = json.loads((ROOT / "config.local.json").read_text())
-    hooks = cfg["discord_webhooks"]
-    missing = [c for c in CHANNELS if not hooks.get(c, "").startswith("https://discord.com/api/webhooks/")]
-    if missing:
-        sys.exit(f"config.local.json: missing/invalid Discord webhook for: {', '.join(missing)}")
-    Path(sys.argv[1]).write_text(json.dumps(build(hooks), indent=2, ensure_ascii=False))
+    if len(sys.argv) != 2:
+        sys.exit("Usage: python3 workflows/youtube_to_discord.py OUT.json")
+    with open(sys.argv[1], "w", encoding="utf-8") as f:
+        json.dump(build(), f, indent=2, ensure_ascii=False)
