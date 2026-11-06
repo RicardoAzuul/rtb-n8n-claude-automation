@@ -1,113 +1,91 @@
 ---
 name: n8n-build-workflow
-description: Build, change, test, or debug an n8n workflow on Richard's local n8n instance via scripts/n8n_api.py. Use whenever Richard describes a workflow he wants, asks to modify or fix an existing one, or asks to test, activate, or publish one.
+description: Build, change, test, or debug an n8n workflow on Richard's local n8n instance using ONLY the n8n MCP tools (mcp__n8n__*). Use whenever Richard describes a workflow he wants, asks to modify or fix an existing one, or asks to test, publish, or unpublish one.
 ---
 
-# Build an n8n workflow
+# Build an n8n workflow (n8n MCP only)
 
-Always work via `scripts/n8n_api.py`, never with ad-hoc curl commands. The
-safety rules in `CLAUDE.md` apply throughout.
+## Hard rule
 
-## 1. Verify the live API first
+Use the n8n MCP server (`mcp__n8n__*` tools) for everything. **Never** use
+`scripts/n8n_api.py`, curl, Python/Node snippets, the n8n CLI, `docker exec`,
+or any other custom code or shell route to reach n8n. Richard would rather do
+a step by hand than have custom code run.
 
-Don't assume the API shape. Older docs use `active: true/false` and separate
-`/activate`/`/deactivate` endpoints; newer n8n versions use a draft/publish
-model (`activeVersionId`, `publishIfActive` on the PUT) and deprecate `active`.
+If the MCP can't do something, or a tool fails: **stop, tell Richard what is
+missing and what he can do by hand in the n8n UI** (`http://localhost:5678`).
+Don't ask about fallbacks; the answer is no. The safety rules in `CLAUDE.md`
+apply throughout.
 
-1. `python3 scripts/n8n_api.py ping` — verify connectivity and the API key.
-   If it reports that `N8N_API_KEY` is missing, Richard must copy
-   `example.env` to `.env` and fill it in. Don't read or write `.env`
-   yourself.
-2. `python3 scripts/n8n_api.py docs` — tries to download the live OpenAPI spec
-   to `n8n-openapi.json`/`.yaml`. If that fails, open
-   `http://localhost:5678/api/v1/docs` (Swagger playground, always exact for
-   the installed version) and read the workflow/execution schemas there.
-   (`docs` fetches `/api/v1/openapi.yml`.)
-3. Use the spec to determine how activating/publishing works *before* any PUT
-   on a workflow that is already active. A wrong assumption can deactivate a
-   running workflow or leave a draft behind.
+Load deferred MCP tools with ToolSearch (`select:mcp__n8n__<name>`) before
+calling them.
 
-**Verified on Richard's instance (n8n Public API 1.1.1, 2026-10-29):** it uses
-the draft/publish model.
+## 1. Orient
 
-- `active` is deprecated; a workflow is published when `activeVersionId` is
-  not null.
-- Publish/unpublish with `publish-workflow <id>` / `unpublish-workflow <id>`
-  (`POST /workflows/{id}/publish|unpublish`). The old `/activate` and
-  `/deactivate` endpoints are deprecated.
-- `update-workflow` on a published workflow re-publishes it automatically
-  (needs the `workflow:activate` API key scope). Use `--no-publish`
-  (`publishIfActive=false`) to save a draft and leave the live version
-  untouched.
-
-Re-verify with `docs` if n8n has been upgraded.
-
-Node types and parameters (HTTP Request, Set, IF, Code, Webhook, ...) also
-differ per n8n version and installed community nodes. Don't invent parameters
-from memory: look them up in the live docs, the official n8n node
-documentation, or `n8n-mcp` tools if that MCP server is available.
+1. `get_user_preferences` — mandatory before creating or modifying anything;
+   apply what it returns.
+2. `get_instance_context` — see what exists on the instance.
+3. `search_workflows` / `get_workflow_details` — check whether the workflow
+   (or a similar one) already exists. Changes go to the existing ID.
 
 ## 2. Clarify before building
 
 Ask if anything is ambiguous:
 
 - Trigger type (webhook / schedule / manual / other).
-- External services and credentials involved.
-- **Real, irreversible side effects** (sending email, posting to Slack,
-  deleting data, payments, ...). If there are any, tell Richard explicitly
-  before testing: testing via this route is a **real** execution, not a dry
-  run. Get explicit confirmation first.
+- External services and credentials involved (`list_credentials`).
+- **Real, irreversible side effects** (email, Slack/Discord posts, deleting
+  data, payments, ...). Tell Richard explicitly before testing: a test is a
+  **real** execution, not a dry run. Get explicit confirmation first.
+- Whether Richard wants a workflow or a first-class n8n Agent (follow the MCP
+  server's routing guidance; never substitute one for the other silently).
 
 ## 3. Design
 
-Design nodes + connections from the live node knowledge above, not from
-assumptions.
+Read the references, then design:
 
-If a node needs OAuth credentials that don't exist yet, you cannot create or
-authorize them via the API. Richard must do that once in the n8n UI
-(Credentials). Say so explicitly rather than acting as if it's solved.
+- `get_workflow_sdk_reference` — required before writing workflow code.
+- `get_workflow_best_practices` — once per relevant technique.
+- `search_nodes`, `get_node_types`, `explore_node_resources` — look up real
+  node types and parameters. Don't invent parameters from memory.
+- `validate_node_config` / `validate_workflow` — validate before pushing.
+
+If a node needs OAuth credentials that don't exist yet, they can't be created
+via the MCP. Richard must set them up in the n8n UI (Credentials). Say so
+explicitly.
 
 ## 4. Push
 
-- New workflow: `create-workflow`.
-- Change to an existing one: `update-workflow` on the correct ID, with
-  `--publish` or `--no-publish` once the live docs tell you which applies.
-  Never use `create-workflow` again for a change, and never delete or
-  overwrite an existing workflow unless Richard asked for it.
+- New workflow: `create_workflow_from_code`.
+- Change to an existing one: `update_workflow` on the correct ID. Never create
+  a new workflow for a change, and never delete/archive/overwrite one unless
+  Richard asked.
+- Publishing: `publish_workflow` / `unpublish_workflow`, only when Richard
+  asked or confirms. A saved draft is not a published workflow.
+- Organisation (only if asked): `create_folder`, `move_workflows_to_folder`.
 
 ## 5. Test
 
-There is no generic "run this workflow now" endpoint. `/executions/{id}/retry`
-exists but needs an existing execution ID. Use these routes in order:
+Use the MCP only:
 
-1. **n8n CLI** (works for any trigger type):
-   `python3 scripts/n8n_api.py cli-execute <workflow-id>`
-   Add `--docker-container NAME` (or set `N8N_DOCKER_CONTAINER` in `.env`) if
-   n8n runs in Docker. Ask Richard if
-   `which n8n` finds nothing and no npx n8n is available.
-2. **Webhook trigger**, if the workflow starts with a Webhook node:
-   `python3 scripts/n8n_api.py call-webhook <path> --test --data '{...}'`
-   (test URL, "Listen for test event"), or without `--test` against the
-   production URL if the workflow is active.
-3. **Last resort**: ask Richard to click "Execute workflow" once in the
-   editor, then read the result back with `get-execution`.
+1. `prepare_workflow_pin_data` / `test_workflow` for a run with pinned data
+   where it fits.
+2. `execute_workflow` for a real run (after confirmation if there are
+   external side effects).
+3. Read the result with `get_workflow_execution` /
+   `search_workflow_executions`. Judge `status`/`error` from that output,
+   never from the fact that the call returned.
 
-After every run:
-
-```
-python3 scripts/n8n_api.py list-executions --workflow-id <id> --limit 1
-python3 scripts/n8n_api.py get-execution <execution-id> --full
-```
-
-Judge `status`/`error` from that output. Never conclude success from an HTTP
-200 on the trigger call.
+If the MCP can't run it (e.g. a trigger it can't start), ask Richard to click
+"Execute workflow" in the editor, then read the result back with
+`get_workflow_execution`.
 
 ## 6. Iterate
 
-On a failed execution, read the exact error from `get-execution --full`,
-adjust the workflow JSON, push again, test again. Stop after a few attempts
-and give Richard the problem plus the last error message instead of retrying
-endlessly.
+On a failed execution, read the exact error, adjust, `update_workflow`, test
+again. Use `get_workflow_history` / `restore_workflow_version` only if
+Richard wants to roll back. Stop after a few attempts and give Richard the
+problem plus the last error message instead of retrying endlessly.
 
 ## 7. Report
 
@@ -115,7 +93,7 @@ Keep it short and concrete:
 
 - Workflow name and ID
 - Editor link: `http://localhost:5678/workflow/<id>`
-- Active or inactive
+- Published or draft
 - Test result, including a clear notice if the test had a real side effect
-  (e.g. "a Slack message was just actually sent to #channel as part of the
-  test")
+  (e.g. "a Discord message was just actually sent as part of the test")
+- Anything Richard must do by hand (credentials, UI steps)
