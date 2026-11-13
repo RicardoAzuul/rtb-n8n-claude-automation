@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(*localhost*)",
+      "Bash(*127.0.0.1*)",
+      "Bash(*0.0.0.0*)",
+      "Bash(*:5678*)",
+      "Bash(*n8n_api.py*)",
+      "Bash(*scripts/*.py*)",
+      "Bash(n8n *)",
+      "Bash(npx n8n*)",
+      "Bash(docker exec *)",
+      "Bash(docker compose exec *)",
+      "Bash(*sqlite3*)",
+      "Bash(*psql*)",
+      "WebFetch(domain:localhost)",
+      "WebFetch(domain:127.0.0.1)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./config.local.json)"
+    ],
+    "ask": [
+      "mcp__n8n__test_workflow",
+      "mcp__n8n__execute_workflow",
+      "mcp__n8n__publish_workflow",
+      "mcp__n8n__unpublish_workflow",
+      "mcp__n8n__archive_workflow",
+      "mcp__n8n__restore_workflow_version",
+      "mcp__n8n__install_community_node",
+      "mcp__n8n__call_agent",
+      "mcp__n8n__publish_agent",
+      "mcp__n8n__unpublish_agent",
+      "mcp__n8n__delete_agent",
+      "mcp__n8n__revert_agent",
+      "mcp__n8n__delete_data_table_column"
+    ]
+  }
+}
