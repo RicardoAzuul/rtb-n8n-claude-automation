@@ -69,7 +69,11 @@ explicitly.
 Use the MCP only:
 
 1. `prepare_workflow_pin_data` / `test_workflow` for a run with pinned data
-   where it fits.
+   where it fits. `test_workflow` is allowed without Richard's approval, so
+   it must stay side-effect free: it only auto-pins triggers, credentialed
+   nodes and HTTP Request nodes. Also pin every other node that writes or
+   deletes (Data table insert/upsert/delete, file writes, Execute Command,
+   sub-workflow calls, ...), or the test changes real data.
 2. `execute_workflow` for a real run (after confirmation if there are
    external side effects).
 3. Read the result with `get_workflow_execution` /

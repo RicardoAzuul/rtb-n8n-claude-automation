@@ -1,5 +1,8 @@
 {
   "permissions": {
+    "allow": [
+      "mcp__n8n__test_workflow"
+    ],
     "deny": [
       "Bash(*localhost*)",
       "Bash(*127.0.0.1*)",
@@ -20,7 +23,6 @@
       "Read(./config.local.json)"
     ],
     "ask": [
-      "mcp__n8n__test_workflow",
       "mcp__n8n__execute_workflow",
       "mcp__n8n__publish_workflow",
       "mcp__n8n__unpublish_workflow",
